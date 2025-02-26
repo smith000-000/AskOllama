@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Ollama Helper",
+  "version": "1.0",
+  "description": "Send highlighted text to Ollama",
+  "permissions": [
+    "contextMenus", 
+    "storage",
+    "sidePanel",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://localhost:11434/",
+    "http://*/",
+    "https://*/"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Ollama Helper"
+  }
+}

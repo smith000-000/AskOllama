@@ -1,0 +1,48 @@
+<!-- options.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ollama Helper Settings</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+<body>
+    <h1>Ollama Helper Settings</h1>
+    
+    <div class="form-group">
+        <label for="ollamaAddress">Ollama Address:</label>
+        <input type="text" id="ollamaAddress" placeholder="http://localhost:11434">
+        <button id="testConnection">Test Connection</button>
+    </div>
+
+    <div class="form-group">
+        <label for="modelSelect">Model:</label>
+        <select id="modelSelect" disabled>
+            <option value="">Please test connection first</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="systemPrompt">System Prompt:</label>
+        <textarea id="systemPrompt" placeholder="Enter your system prompt here..."></textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="testPrompt">Test Prompt:</label>
+        <textarea id="testPrompt" placeholder="Enter a test prompt here..."></textarea>
+        <button id="testChat">Test Chat</button>
+    </div>
+
+    <div class="form-group">
+        <label>Response:</label>
+        <div id="chatResponse" class="response-box"></div>
+    </div>
+
+    <div class="button-group">
+        <button id="save">Save Settings</button>
+    </div>
+    
+    <div id="status"></div>
+
+    <script src="options.js"></script>
+</body>
+</html>
