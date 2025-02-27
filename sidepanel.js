@@ -44,7 +44,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Add the query message
         const queryDiv = document.createElement('div');
         queryDiv.className = 'message query';
-        queryDiv.textContent = message.query;
+        
+        // Check if this is an image analysis
+        if (message.query === 'Analyzing image...') {
+            queryDiv.innerHTML = `
+                <div class="image-analysis">
+                    <p>${message.query}</p>
+                    <div class="loading-spinner"></div>
+                </div>
+            `;
+        } else {
+            queryDiv.textContent = message.query;
+        }
+        
         contentDiv.appendChild(queryDiv);
         conversationHistory.push({ type: 'query', text: message.query });
 
@@ -52,16 +64,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentResponseDiv = document.createElement('div');
         currentResponseDiv.className = 'message response';
         contentDiv.appendChild(currentResponseDiv);
+        
+        // Scroll to bottom
+        contentDiv.scrollTop = contentDiv.scrollHeight;
     } else if (message.type === 'stream-chunk') {
         if (currentResponseDiv) {
             currentResponseDiv.textContent += message.chunk;
             contentDiv.scrollTop = contentDiv.scrollHeight;
         }
     } else if (message.type === 'stream-end') {
-        if (currentResponseDiv) {
-            conversationHistory.push({ type: 'response', text: message.fullResponse });
-            currentResponseDiv = null;
-        }
+        conversationHistory.push({ type: 'response', text: message.fullResponse });
+        currentResponseDiv = null;
+    } else if (message.error) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'message error';
+        errorDiv.textContent = message.error;
+        contentDiv.appendChild(errorDiv);
+        contentDiv.scrollTop = contentDiv.scrollHeight;
     } else if (message.error || message.debug) {
         // Add to debug history
         updateDebug({

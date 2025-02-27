@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "name": "Ollama Helper",
   "version": "1.0",
-  "description": "Send highlighted text to Ollama",
+  "description": "Send highlighted text and images to Ollama",
   "permissions": [
     "contextMenus", 
     "storage",
     "sidePanel",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "http://localhost:11434/",
