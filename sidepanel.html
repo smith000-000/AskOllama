@@ -152,6 +152,7 @@
             border-top: 1px solid #e9ecef;
             display: flex;
             gap: 8px;
+            align-items: flex-end; /* Align items to the bottom */
         }
 
         .chat-input {
@@ -160,10 +161,11 @@
             border: 1px solid #ced4da;
             border-radius: 4px;
             font-size: 14px;
-            resize: none;
-            min-height: 40px;
-            max-height: 120px;
+            resize: vertical; /* Allow vertical resize */
+            min-height: 60px; /* Approx 3 lines + padding */
+            max-height: 200px; /* Set max height */
             overflow-y: auto;
+            /* line-height: 1.4; /* Adjust if needed for better row calculation */
         }
 
         .chat-input:focus {
@@ -180,7 +182,8 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
-            height: 40px;
+            /* height: 40px; /* Remove fixed height to allow alignment */
+            align-self: flex-end; /* Keep button aligned to bottom */
         }
 
         .send-button:hover {
@@ -228,7 +231,7 @@
             class="chat-input" 
             id="chatInput" 
             placeholder="Type your message..."
-            rows="1"
+            rows="3"
         ></textarea>
         <button class="send-button" id="sendButton">Send</button>
     </div>

@@ -129,18 +129,17 @@ async function sendFollowUpMessage() {
     sendButton.disabled = true;
     
     try {
-        // Get settings
-        const settings = await chrome.storage.sync.get(['ollamaAddress', 'selectedModel', 'systemPrompt']);
-        const address = settings.ollamaAddress || 'http://localhost:11434';
-        const model = settings.selectedModel || 'mistral';
-        const systemPrompt = settings.systemPrompt || '';
-        
-        // Build context from conversation history
-        const context = conversationHistory
-            .map(item => item.text)
-            .join('\n\n');
-        
-        // Add the new message to UI
+        // Get all relevant settings with defaults
+        const settings = await chrome.storage.sync.get({
+            ollamaAddress: 'http://localhost:11434',
+            selectedModel: 'mistral', // Default model if none selected
+            systemPrompt: '',
+            connectionType: 'local', // Default to local
+            apiKey: ''
+        });
+        const { ollamaAddress: address, selectedModel: model, systemPrompt, connectionType, apiKey } = settings;
+
+        // --- Add the new message to UI ---
         const contentDiv = document.getElementById('content');
         const queryDiv = document.createElement('div');
         queryDiv.className = 'message query';
@@ -152,66 +151,155 @@ async function sendFollowUpMessage() {
         currentResponseDiv = document.createElement('div');
         currentResponseDiv.className = 'message response';
         contentDiv.appendChild(currentResponseDiv);
-        
-        const response = await fetch(`${address}/api/generate`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
+        contentDiv.scrollTop = contentDiv.scrollHeight; // Scroll after adding divs
+        // ---
+
+        // --- Prepare API Request based on connectionType ---
+        let requestBody;
+        let chatEndpoint;
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        if (connectionType === 'external' && apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        if (connectionType === 'external') {
+            chatEndpoint = `${address}/api/chat/completions`;
+            const messages = [];
+            if (systemPrompt) {
+                messages.push({ role: "system", content: systemPrompt });
+            }
+            // Incorporate conversationHistory for external APIs
+            conversationHistory.forEach(item => {
+                if (item.type === 'query') {
+                    messages.push({ role: "user", content: item.text });
+                } else if (item.type === 'response') {
+                    // Ensure we don't add error messages as assistant responses
+                    if (item.type !== 'error') { 
+                       messages.push({ role: "assistant", content: item.text });
+                    }
+                }
+            });
+            // Add the current user message last
+            messages.push({ role: "user", content: message }); 
+            requestBody = JSON.stringify({
                 model: model,
-                prompt: `${systemPrompt}\n\nContext:\n${context}\n\nUser: ${message}`,
+                messages: messages,
+                stream: true // Assuming external API supports streaming similarly
+            });
+        } else {
+            // Local Ollama format - include context
+            chatEndpoint = `${address}/api/generate`;
+            // Refine context building for Ollama
+            const context = conversationHistory
+                .filter(item => item.type === 'query' || item.type === 'response') // Filter out errors
+                .map(item => {
+                    // Simple User/Assistant prefixing
+                    const prefix = item.type === 'query' ? 'User:' : 'Assistant:';
+                    return `${prefix} ${item.text}`;
+                })
+                .join('\n\n'); // Use double newline for separation
+            const prompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${context ? context + '\n\n' : ''}User: ${message}`; // Ensure User: prefix for current message
+            requestBody = JSON.stringify({
+                model: model,
+                prompt: prompt,
                 stream: true
-            })
+            });
+        }
+        // ---
+
+        // --- Make API Call and Process Stream ---
+        console.log(`Sidepanel Fetch: Type=${connectionType}, Endpoint=${chatEndpoint}, KeyPresent=${!!apiKey}`); // DEBUG LOG
+        const response = await fetch(chatEndpoint, {
+            method: 'POST',
+            headers: headers,
+            body: requestBody
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+             let errorBody = '';
+             try { errorBody = await response.text(); } catch (e) { /* ignore */ }
+             throw new Error(`HTTP error! status: ${response.status}${errorBody ? ` - ${errorBody}` : ''}`);
         }
 
         const reader = response.body.getReader();
         let fullResponse = '';
         
         while (true) {
-            const {done, value} = await reader.read();
+            const { done, value } = await reader.read();
             if (done) break;
             
             const chunk = new TextDecoder().decode(value);
+            // Process potentially multiple JSON objects in a single chunk
             const lines = chunk.split('\n').filter(line => line.trim());
             
             for (const line of lines) {
-                try {
-                    const data = JSON.parse(line);
-                    fullResponse += data.response;
-                    currentResponseDiv.textContent += data.response;
-                    contentDiv.scrollTop = contentDiv.scrollHeight;
-                } catch (e) {
-                    console.error('Error parsing JSON:', e);
-                }
+                 // Handle potential SSE "data: " prefix if present
+                 const jsonData = line.startsWith('data: ') ? line.substring(5) : line;
+                 try {
+                    const data = JSON.parse(jsonData);
+                    let responseChunk = '';
+                    if (connectionType === 'external') {
+                        // OpenAI streaming format: data.choices[0].delta.content
+                        if (data.choices && data.choices.length > 0 && data.choices[0].delta && data.choices[0].delta.content) {
+                            responseChunk = data.choices[0].delta.content;
+                        }
+                    } else {
+                        // Ollama streaming format: data.response
+                        if (data.response) {
+                            responseChunk = data.response;
+                        }
+                    }
+
+                    if (responseChunk && currentResponseDiv) {
+                        fullResponse += responseChunk;
+                        currentResponseDiv.textContent += responseChunk; // Append chunk to UI
+                        contentDiv.scrollTop = contentDiv.scrollHeight; // Scroll with new content
+                    }
+                    // Handle potential end-of-stream markers if needed (e.g., Ollama's final object)
+                    if (data.done && connectionType === 'local') {
+                         // Ollama specific end signal, already handled by reader.read() loop
+                    }
+
+                 } catch (e) {
+                     console.error('Error parsing JSON line:', jsonData, e);
+                 }
             }
         }
+        // ---
+
+        // --- Finalize ---
+        if (currentResponseDiv) { // Check if div still exists
+             conversationHistory.push({ type: 'response', text: fullResponse });
+        }
+        currentResponseDiv = null; // Reset for next response
+        chatInput.value = ''; // Clear input
+        // ---
         
-        // Save the full response to history
-        conversationHistory.push({ type: 'response', text: fullResponse });
-        currentResponseDiv = null;
-        
-        // Clear input
-        chatInput.value = '';
-        
-    } catch (error) {
-        console.error('Error:', error);
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error';
-        errorDiv.textContent = `Error: ${error.message}`;
-        document.getElementById('content').appendChild(errorDiv);
-        conversationHistory.push({ type: 'error', text: error.message });
-    } finally {
-        // Re-enable input and button
+    } catch (error) { // This is the main catch block
+        console.error('Error sending follow-up message:', error); // Log full error
+        if (currentResponseDiv) { // If response div was created, show error there
+             currentResponseDiv.textContent = `Error: ${error.message}`;
+             currentResponseDiv.classList.add('error'); // Add error class for styling
+             conversationHistory.push({ type: 'error', text: error.message });
+             currentResponseDiv = null; // Reset
+        } else { // Otherwise, add a new error div
+             const errorDiv = document.createElement('div');
+             errorDiv.className = 'message error'; // Use message and error classes
+             errorDiv.textContent = `Error: ${error.message}`;
+             document.getElementById('content').appendChild(errorDiv);
+             conversationHistory.push({ type: 'error', text: error.message });
+        }
+        // Ensure scroll to show error
+        document.getElementById('content').scrollTop = document.getElementById('content').scrollHeight;
+    } finally { // This is the single, correct finally block
+        // Re-enable input and button regardless of success or failure
         chatInput.disabled = false;
         sendButton.disabled = false;
         chatInput.focus();
     }
-}
+} // End of sendFollowUpMessage function
 
 // Add event listeners for the chat input
 document.getElementById('sendButton').addEventListener('click', sendFollowUpMessage);
