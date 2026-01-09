@@ -8,7 +8,8 @@
     "storage",
     "sidePanel",
     "tabs",
-    "scripting"
+    "scripting",
+    "activeTab"
   ],
   "host_permissions": [
     "http://localhost:11434/",
@@ -25,5 +26,22 @@
   },
   "action": {
     "default_title": "Ollama Helper"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "commands": {
+    "answer_question": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Z",
+        "windows": "Ctrl+Shift+Z",
+        "mac": "Command+Shift+Z"
+      },
+      "description": "Answer question using Ollama"
+    }
   }
 }

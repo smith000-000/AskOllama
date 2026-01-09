@@ -5,6 +5,7 @@ const connectionTypeRadios = document.querySelectorAll('input[name="connectionTy
 const apiKeyGroup = document.getElementById('apiKeyGroup');
 const apiKeyInput = document.getElementById('apiKey'); // Keep only one declaration
 const fullErrorDetailsDiv = document.getElementById('fullErrorDetails'); // Added selector
+const useInternetCheckbox = document.getElementById('useInternet'); // Added selector
 
 // Function to show/hide API key field based on connection type
 function updateApiKeyVisibility() {
@@ -36,8 +37,10 @@ async function fetchModels(address, connectionType, apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
+    // Normalize base URL to avoid double slashes when users include a trailing slash
+    const base = address.replace(/\/+$/, '');
     // Determine the correct endpoint based on connection type
-    const modelsEndpoint = connectionType === 'external' ? `${address}/api/models` : `${address}/api/tags`;
+    const modelsEndpoint = connectionType === 'external' ? `${base}/api/models` : `${base}/api/tags`;
 
     try {
         const response = await fetch(modelsEndpoint, { headers }); // Use dynamic endpoint
@@ -49,6 +52,14 @@ async function fetchModels(address, connectionType, apiKey) {
             } catch (e) { /* ignore */ }
             throw new Error(`HTTP error! status: ${response.status}${errorBody ? ` - ${errorBody}` : ''}`);
         }
+
+        // Guard against HTML error pages (common when hitting the wrong endpoint)
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('application/json')) {
+            const bodyPreview = (await response.text()).slice(0, 500); // Avoid huge logs
+            throw new Error(`Unexpected response type (${contentType || 'unknown'}). Make sure the API endpoint is correct (e.g., http://localhost:11434 for local Ollama). Preview: ${bodyPreview}`);
+        }
+
         const data = await response.json();
         const modelSelect = document.getElementById('modelSelect');
         
@@ -110,8 +121,9 @@ async function loadSettings() {
         ollamaAddress: 'http://localhost:11434', // Default address
         selectedModel: '',
         systemPrompt: '',
-        connectionType: 'local', // Default connection type
-        apiKey: '' // Default API key
+        connectionType: 'local', // Default to local
+        apiKey: '', // Default API key
+        useInternet: false // Default internet search setting
     });
 
     // Set connection type radio button
@@ -141,6 +153,9 @@ async function loadSettings() {
     
     // Set system prompt
     document.getElementById('systemPrompt').value = settings.systemPrompt || '';
+
+    // Set internet search checkbox
+    useInternetCheckbox.checked = settings.useInternet;
 }
 
 // --- Updated showStatus function ---
@@ -241,7 +256,7 @@ document.getElementById('testChat').addEventListener('click', async function() {
     }
 
     if (connectionType === 'external') {
-        chatEndpoint = `${address}/api/chat/completions`;
+        chatEndpoint = `${address.replace(/\/+$/, '')}/api/chat/completions`; // normalize trailing slash
         // Construct messages array for OpenAI format
         const messages = [];
         if (systemPrompt) {
@@ -278,6 +293,12 @@ document.getElementById('testChat').addEventListener('click', async function() {
                 errorBody = await response.text();
             } catch (e) { /* ignore */ }
             throw new Error(`HTTP error! status: ${response.status}${errorBody ? ` - ${errorBody}` : ''}`);
+        }
+
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('application/json')) {
+             const bodyPreview = (await response.text()).slice(0, 500);
+             throw new Error(`Unexpected response type (${contentType || 'unknown'}). Preview: ${bodyPreview}`);
         }
 
         const data = await response.json();
@@ -320,6 +341,7 @@ document.getElementById('save').addEventListener('click', function() {
     const systemPrompt = document.getElementById('systemPrompt').value;
     const connectionType = document.querySelector('input[name="connectionType"]:checked').value;
     const apiKey = apiKeyInput.value.trim(); // Get API key from input
+    const useInternet = useInternetCheckbox.checked; // Get internet search setting
 
     if (!ollamaAddress) {
         showStatus('Please enter API Endpoint URL', false); // Updated label
@@ -332,7 +354,8 @@ document.getElementById('save').addEventListener('click', function() {
         selectedModel: selectedModel,
         systemPrompt: systemPrompt,
         connectionType: connectionType,
-        apiKey: apiKey // Save API key regardless of type, load logic handles visibility
+        apiKey: apiKey, // Save API key regardless of type, load logic handles visibility
+        useInternet: useInternet // Save internet search setting
     };
 
     // Clear previous error details before saving

@@ -75,6 +75,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.type === 'stream-end') {
         conversationHistory.push({ type: 'response', text: message.fullResponse });
         currentResponseDiv = null;
+    } else if (message.type === 'clear-chat') {
+        // Clear the chat display and history
+        contentDiv.innerHTML = '<div class="placeholder">Select text and right-click to send to Ollama</div>';
+        conversationHistory = [];
+        currentResponseDiv = null;
+        // Optionally clear debug history too? For now, keep it.
+        // debugHistory = [];
+        // document.getElementById('debugContent').textContent = '';
+        // document.getElementById('debug').classList.remove('visible');
     } else if (message.error) {
         const errorDiv = document.createElement('div');
         errorDiv.className = 'message error';
@@ -135,9 +144,11 @@ async function sendFollowUpMessage() {
             selectedModel: 'mistral', // Default model if none selected
             systemPrompt: '',
             connectionType: 'local', // Default to local
-            apiKey: ''
+            apiKey: '',
+            useInternet: false // Fetch useInternet setting
         });
-        const { ollamaAddress: address, selectedModel: model, systemPrompt, connectionType, apiKey } = settings;
+        const { ollamaAddress: address, selectedModel: model, systemPrompt, connectionType, apiKey, useInternet } = settings;
+        const baseAddress = address.replace(/\/+$/, ''); // normalize trailing slashes
 
         // --- Add the new message to UI ---
         const contentDiv = document.getElementById('content');
@@ -165,7 +176,7 @@ async function sendFollowUpMessage() {
         }
 
         if (connectionType === 'external') {
-            chatEndpoint = `${address}/api/chat/completions`;
+            chatEndpoint = `${baseAddress}/api/chat/completions`;
             const messages = [];
             if (systemPrompt) {
                 messages.push({ role: "system", content: systemPrompt });
@@ -183,14 +194,18 @@ async function sendFollowUpMessage() {
             });
             // Add the current user message last
             messages.push({ role: "user", content: message }); 
-            requestBody = JSON.stringify({
+            const requestObject = { // Prepare object first
                 model: model,
                 messages: messages,
                 stream: true // Assuming external API supports streaming similarly
-            });
+            }; // Close the object literal here
+            if (useInternet) { // Conditionally add parameter
+                requestObject.tool_ids = ["web_search"]; // OpenWebUI format
+            }
+            requestBody = JSON.stringify(requestObject); // Stringify at the end
         } else {
             // Local Ollama format - include context
-            chatEndpoint = `${address}/api/generate`;
+            chatEndpoint = `${baseAddress}/api/generate`;
             // Refine context building for Ollama
             const context = conversationHistory
                 .filter(item => item.type === 'query' || item.type === 'response') // Filter out errors
@@ -201,11 +216,15 @@ async function sendFollowUpMessage() {
                 })
                 .join('\n\n'); // Use double newline for separation
             const prompt = `${systemPrompt ? systemPrompt + '\n\n' : ''}${context ? context + '\n\n' : ''}User: ${message}`; // Ensure User: prefix for current message
-            requestBody = JSON.stringify({
+            const requestObject = { // Prepare object first
                 model: model,
                 prompt: prompt,
                 stream: true
-            });
+            };
+            if (useInternet) { // Conditionally add parameter
+                requestObject.tool_ids = ["web_search"]; // OpenWebUI format
+            }
+            requestBody = JSON.stringify(requestObject); // Stringify at the end
         }
         // ---
 
