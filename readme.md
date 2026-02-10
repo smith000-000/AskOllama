@@ -17,6 +17,9 @@ This Chrome extension allows you to easily send selected text or images from you
 *   **Flexible Configuration:**
     *   Supports local Ollama instances.
     *   Supports external OpenAI-compatible APIs (e.g., Open WebUI, Groq, Together AI) with optional API key authentication.
+    *   Supports direct OpenAI API key provider mode.
+    *   Supports OpenRouter API key provider mode.
+    *   Includes experimental Codex OAuth settings UI (requires a pre-provisioned OAuth client).
     *   Select the model to use.
     *   Set a custom system prompt.
     *   Enable web search for supported endpoints (OpenWebUI).
@@ -35,14 +38,19 @@ The extension icon should now appear in your browser's toolbar.
 ## Configuration
 
 1.  **Open Options:** Right-click the extension icon in your toolbar and select "Options", or find the extension on the `chrome://extensions` page and click "Details" -> "Extension options".
-2.  **Connection Type:**
+2.  **Provider:**
     *   **Local Ollama:** Select this if you are running Ollama locally.
-    *   **External API:** Select this if you are connecting to an OpenAI-compatible API endpoint (like [Open WebUI](https://github.com/open-webui/open-webui), Groq, Together AI, etc.).
+    *   **External API (OpenAI-compatible):** Select this if you are connecting to an OpenAI-compatible API endpoint (like [Open WebUI](https://github.com/open-webui/open-webui), Groq, Together AI, etc.).
+    *   **OpenAI Direct API Key:** Select this for direct calls to OpenAI API.
+    *   **OpenRouter API Key:** Select this for direct calls to OpenRouter.
+    *   **Codex OAuth:** Experimental; requires a pre-provisioned OAuth client.
 3.  **API Endpoint URL:**
     *   For **Local Ollama**, enter the address of your Ollama instance (default: `http://localhost:11434`).
     *   For **External API**, enter the base URL of the API endpoint (e.g., `https://api.groq.com/openai/v1`).
-4.  **API Key (External API only):** If the external API requires an API key, enter it here. It will be sent as a Bearer token in the `Authorization` header.
-5.  **Test Connection:** Click "Test Connection". This will attempt to fetch available models from the specified endpoint using the selected connection type and API key (if applicable).
+    *   For **OpenAI** and **OpenRouter**, defaults are pre-filled and can be overridden.
+4.  **API Key (API key providers):** Enter provider API key when using External, OpenAI Direct, or OpenRouter modes.
+5.  **Test Connection:** Click "Test Connection". This fetches models from the selected provider endpoint using configured auth.
+6.  **Model Search:** Use the model filter input to type-ahead search large model lists (especially useful for OpenRouter).
 6.  **Model:** Once the connection is successful, select the desired model from the dropdown list.
     *   *Note:* For image analysis via the context menu, ensure you select a multimodal model (like `llava`).
 7.  **System Prompt (Optional):** Enter any system prompt you want to prepend to your requests.
