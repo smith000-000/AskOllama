@@ -13,7 +13,7 @@ label {
     margin-bottom: 5px;
     font-weight: bold;
 }
-select, textarea, input[type="text"] {
+select, textarea, input[type="text"], input[type="password"] {
     width: 100%;
     padding: 8px;
     margin-top: 5px;
@@ -98,4 +98,23 @@ button:hover {
     display: inline-block;
     vertical-align: top;
     margin-top: 0;
+}
+
+#modelSearch {
+    margin-bottom: 8px;
+}
+
+.oauth-status {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #333;
+}
+
+.oauth-hint {
+    margin-bottom: 8px;
+    padding: 8px;
+    border: 1px solid #e5c35b;
+    background: #fff8e1;
+    font-size: 12px;
+    line-height: 1.4;
 }

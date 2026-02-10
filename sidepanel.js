@@ -2,6 +2,155 @@
 let conversationHistory = [];
 let debugHistory = [];
 let currentResponseDiv = null;
+const OAUTH_LOCAL_KEY = 'codexOAuthToken';
+
+function providerFromLegacy(connectionType) {
+    return connectionType === 'external' ? 'external_compatible' : 'local_ollama';
+}
+
+function normalizeProvider(settings) {
+    return settings.provider || providerFromLegacy(settings.connectionType);
+}
+
+function normalizeBase(address) {
+    return (address || '').replace(/\/+$/, '');
+}
+
+function isLocalProvider(provider) {
+    return provider === 'local_ollama';
+}
+
+function supportsWebSearch(provider) {
+    return provider === 'local_ollama' || provider === 'external_compatible' || provider === 'openrouter_api_key';
+}
+
+function defaultBaseForProvider(provider) {
+    if (provider === 'openai_direct_api_key' || provider === 'codex_oauth') {
+        return 'https://api.openai.com/v1';
+    }
+    if (provider === 'openrouter_api_key') {
+        return 'https://openrouter.ai/api/v1';
+    }
+    return 'http://localhost:11434';
+}
+
+function getProviderAddress(settings, provider) {
+    const map = settings.apiBaseOverrideByProvider || {};
+    return normalizeBase(map[provider] || settings.ollamaAddress || defaultBaseForProvider(provider));
+}
+
+function getProviderModel(settings, provider, fallbackModel) {
+    const map = settings.selectedModelByProvider || {};
+    return map[provider] || settings.selectedModel || fallbackModel;
+}
+
+function getProviderApiKey(settings, provider) {
+    const map = settings.apiKeyByProvider || {};
+    return map[provider] || (provider === 'external_compatible' ? settings.apiKey || '' : '');
+}
+
+function getChatEndpoint(provider, baseAddress) {
+    if (provider === 'local_ollama') {
+        return `${baseAddress}/api/generate`;
+    }
+    if (provider === 'external_compatible') {
+        return `${baseAddress}/api/chat/completions`;
+    }
+    return `${baseAddress}/chat/completions`;
+}
+
+function extractStreamingChunk(provider, data) {
+    if (isLocalProvider(provider)) {
+        return data.response || '';
+    }
+    return data?.choices?.[0]?.delta?.content || '';
+}
+
+function applyWebSearchIfSupported(provider, requestObject, useInternet) {
+    if (!useInternet || !supportsWebSearch(provider)) {
+        return;
+    }
+
+    if (provider === 'openrouter_api_key') {
+        requestObject.plugins = [{ id: 'web' }];
+        return;
+    }
+
+    requestObject.tool_ids = ['web_search'];
+}
+
+async function refreshCodexAccessTokenIfNeeded(settings) {
+    const local = await chrome.storage.local.get({ [OAUTH_LOCAL_KEY]: null });
+    const tokenState = local[OAUTH_LOCAL_KEY];
+
+    if (!tokenState || !tokenState.accessToken) {
+        return '';
+    }
+
+    if (tokenState.expiresAt && tokenState.expiresAt > Date.now() + 60000) {
+        return tokenState.accessToken;
+    }
+
+    if (!tokenState.refreshToken || !settings.oauthClientId || !settings.oauthTokenUrl) {
+        return '';
+    }
+
+    const form = new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: settings.oauthClientId,
+        refresh_token: tokenState.refreshToken
+    });
+
+    if (settings.oauthScope) {
+        form.set('scope', settings.oauthScope);
+    }
+
+    const response = await fetch(settings.oauthTokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString()
+    });
+
+    if (!response.ok) {
+        return '';
+    }
+
+    const tokenData = await response.json();
+    const expiresIn = Number(tokenData.expires_in || 3600);
+    const updated = {
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token || tokenState.refreshToken,
+        tokenType: tokenData.token_type || 'Bearer',
+        scope: tokenData.scope || settings.oauthScope || '',
+        expiresAt: Date.now() + expiresIn * 1000
+    };
+    await chrome.storage.local.set({ [OAUTH_LOCAL_KEY]: updated });
+    return updated.accessToken;
+}
+
+async function buildHeadersForProvider(provider, settings) {
+    const headers = { 'Content-Type': 'application/json' };
+
+    if (provider === 'codex_oauth') {
+        const token = await refreshCodexAccessTokenIfNeeded(settings);
+        if (!token) {
+            throw new Error('Codex OAuth is not signed in. Open extension options and sign in.');
+        }
+        headers.Authorization = `Bearer ${token}`;
+    } else {
+        const apiKey = getProviderApiKey(settings, provider);
+        if (apiKey) {
+            headers.Authorization = `Bearer ${apiKey}`;
+        }
+    }
+
+    if (provider === 'openrouter_api_key') {
+        headers['HTTP-Referer'] = chrome.runtime.getURL('');
+        headers['X-Title'] = 'AskOllama';
+    }
+
+    return headers;
+}
 
 // Function to update debug section
 function updateDebug(info) {
@@ -141,14 +290,24 @@ async function sendFollowUpMessage() {
         // Get all relevant settings with defaults
         const settings = await chrome.storage.sync.get({
             ollamaAddress: 'http://localhost:11434',
-            selectedModel: 'mistral', // Default model if none selected
+            selectedModel: 'mistral',
+            selectedModelByProvider: {},
             systemPrompt: '',
-            connectionType: 'local', // Default to local
+            connectionType: 'local',
+            provider: '',
             apiKey: '',
-            useInternet: false // Fetch useInternet setting
+            apiKeyByProvider: {},
+            apiBaseOverrideByProvider: {},
+            useInternet: false,
+            oauthClientId: '',
+            oauthTokenUrl: '',
+            oauthScope: ''
         });
-        const { ollamaAddress: address, selectedModel: model, systemPrompt, connectionType, apiKey, useInternet } = settings;
-        const baseAddress = address.replace(/\/+$/, ''); // normalize trailing slashes
+        const provider = normalizeProvider(settings);
+        const model = getProviderModel(settings, provider, 'mistral');
+        const systemPrompt = settings.systemPrompt || '';
+        const useInternet = !!settings.useInternet;
+        const baseAddress = getProviderAddress(settings, provider);
 
         // --- Add the new message to UI ---
         const contentDiv = document.getElementById('content');
@@ -168,15 +327,10 @@ async function sendFollowUpMessage() {
         // --- Prepare API Request based on connectionType ---
         let requestBody;
         let chatEndpoint;
-        const headers = {
-            'Content-Type': 'application/json'
-        };
-        if (connectionType === 'external' && apiKey) {
-            headers['Authorization'] = `Bearer ${apiKey}`;
-        }
+        const headers = await buildHeadersForProvider(provider, settings);
 
-        if (connectionType === 'external') {
-            chatEndpoint = `${baseAddress}/api/chat/completions`;
+        if (!isLocalProvider(provider)) {
+            chatEndpoint = getChatEndpoint(provider, baseAddress);
             const messages = [];
             if (systemPrompt) {
                 messages.push({ role: "system", content: systemPrompt });
@@ -199,13 +353,11 @@ async function sendFollowUpMessage() {
                 messages: messages,
                 stream: true // Assuming external API supports streaming similarly
             }; // Close the object literal here
-            if (useInternet) { // Conditionally add parameter
-                requestObject.tool_ids = ["web_search"]; // OpenWebUI format
-            }
+            applyWebSearchIfSupported(provider, requestObject, useInternet);
             requestBody = JSON.stringify(requestObject); // Stringify at the end
         } else {
             // Local Ollama format - include context
-            chatEndpoint = `${baseAddress}/api/generate`;
+            chatEndpoint = getChatEndpoint(provider, baseAddress);
             // Refine context building for Ollama
             const context = conversationHistory
                 .filter(item => item.type === 'query' || item.type === 'response') // Filter out errors
@@ -221,15 +373,13 @@ async function sendFollowUpMessage() {
                 prompt: prompt,
                 stream: true
             };
-            if (useInternet) { // Conditionally add parameter
-                requestObject.tool_ids = ["web_search"]; // OpenWebUI format
-            }
+            applyWebSearchIfSupported(provider, requestObject, useInternet);
             requestBody = JSON.stringify(requestObject); // Stringify at the end
         }
         // ---
 
         // --- Make API Call and Process Stream ---
-        console.log(`Sidepanel Fetch: Type=${connectionType}, Endpoint=${chatEndpoint}, KeyPresent=${!!apiKey}`); // DEBUG LOG
+        console.log(`Sidepanel Fetch: Provider=${provider}, Endpoint=${chatEndpoint}`); // DEBUG LOG
         const response = await fetch(chatEndpoint, {
             method: 'POST',
             headers: headers,
@@ -259,17 +409,7 @@ async function sendFollowUpMessage() {
                  try {
                     const data = JSON.parse(jsonData);
                     let responseChunk = '';
-                    if (connectionType === 'external') {
-                        // OpenAI streaming format: data.choices[0].delta.content
-                        if (data.choices && data.choices.length > 0 && data.choices[0].delta && data.choices[0].delta.content) {
-                            responseChunk = data.choices[0].delta.content;
-                        }
-                    } else {
-                        // Ollama streaming format: data.response
-                        if (data.response) {
-                            responseChunk = data.response;
-                        }
-                    }
+                    responseChunk = extractStreamingChunk(provider, data);
 
                     if (responseChunk && currentResponseDiv) {
                         fullResponse += responseChunk;
@@ -277,7 +417,7 @@ async function sendFollowUpMessage() {
                         contentDiv.scrollTop = contentDiv.scrollHeight; // Scroll with new content
                     }
                     // Handle potential end-of-stream markers if needed (e.g., Ollama's final object)
-                    if (data.done && connectionType === 'local') {
+                    if (data.done && isLocalProvider(provider)) {
                          // Ollama specific end signal, already handled by reader.read() loop
                     }
 

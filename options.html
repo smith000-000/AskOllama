@@ -15,12 +15,21 @@
     </div>
 
     <div class="form-group">
-        <label>Connection Type:</label>
+        <label>Provider:</label>
         <label>
-            <input type="radio" name="connectionType" value="local" checked> Local Ollama
+            <input type="radio" name="provider" value="local_ollama" checked> Local Ollama
         </label>
         <label>
-            <input type="radio" name="connectionType" value="external"> External API
+            <input type="radio" name="provider" value="external_compatible"> External API (OpenAI-compatible)
+        </label>
+        <label>
+            <input type="radio" name="provider" value="openai_direct_api_key"> OpenAI Direct API Key
+        </label>
+        <label>
+            <input type="radio" name="provider" value="openrouter_api_key"> OpenRouter API Key
+        </label>
+        <label>
+            <input type="radio" name="provider" value="codex_oauth"> Codex OAuth
         </label>
     </div>
 
@@ -29,8 +38,32 @@
         <input type="password" id="apiKey" placeholder="Enter API Key (optional)">
     </div>
 
+    <div class="form-group" id="oauthGroup" style="display: none;">
+        <label>Codex OAuth:</label>
+        <div class="button-group">
+            <button id="codexSignIn">Sign In</button>
+            <button id="codexSignOut">Sign Out</button>
+        </div>
+        <div id="oauthStatus" class="oauth-status">Not signed in</div>
+    </div>
+
+    <div class="form-group" id="oauthAdvancedGroup" style="display: none;">
+        <div id="oauthSetupHint" class="oauth-hint">
+            Codex OAuth requires a pre-provisioned OAuth client. Redirect URI: <code id="oauthRedirectUri"></code>
+        </div>
+        <label for="oauthClientId">OAuth Client ID:</label>
+        <input type="text" id="oauthClientId" placeholder="Enter OAuth client ID">
+        <label for="oauthAuthUrl">OAuth Authorize URL:</label>
+        <input type="text" id="oauthAuthUrl" placeholder="https://auth.openai.com/oauth/authorize">
+        <label for="oauthTokenUrl">OAuth Token URL:</label>
+        <input type="text" id="oauthTokenUrl" placeholder="https://auth.openai.com/oauth/token">
+        <label for="oauthScope">OAuth Scopes (space-separated):</label>
+        <input type="text" id="oauthScope" placeholder="openid profile email offline_access">
+    </div>
+
     <div class="form-group">
         <label for="modelSelect">Model:</label>
+        <input type="text" id="modelSearch" placeholder="Type to filter models...">
         <select id="modelSelect" disabled>
             <option value="">Please test connection first</option>
         </select>
@@ -38,7 +71,7 @@
 
      <div class="form-group">
         <label>
-            <input type="checkbox" id="useInternet"> Enable Internet Search (Requires compatible backend)
+            <input type="checkbox" id="useInternet"> Enable Internet Search (supported on OpenWebUI-compatible and OpenRouter providers)
         </label>
     </div>
 
